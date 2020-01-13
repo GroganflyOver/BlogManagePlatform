@@ -1,9 +1,8 @@
 package frodez.config.security.util;
 
-import frodez.dao.result.user.PermissionInfo;
+import frodez.dao.model.table.permission.Endpoint;
+import frodez.util.common.StreamUtil;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -21,9 +20,8 @@ public class AuthorityUtil {
 	 * @param authorities 权限信息
 	 * @date 2018-11-21
 	 */
-	public static List<GrantedAuthority> make(List<PermissionInfo> authorities) {
-		return authorities.stream().map(authority -> new SimpleGrantedAuthority(authority.getName())).collect(Collectors
-			.toList());
+	public static List<GrantedAuthority> make(List<Endpoint> endpoints) {
+		return StreamUtil.list(endpoints, (item) -> new SimpleGrantedAuthority(item.getName()));
 	}
 
 	/**
@@ -33,7 +31,16 @@ public class AuthorityUtil {
 	 * @date 2018-11-21
 	 */
 	public static List<GrantedAuthority> make(String... authorities) {
-		return Stream.of(authorities).map(SimpleGrantedAuthority::new).collect(Collectors.toList());
+		return StreamUtil.list(authorities, SimpleGrantedAuthority::new);
+	}
+
+	/**
+	 * 获取权限信息
+	 * @author Frodez
+	 * @date 2018-11-21
+	 */
+	public static String[] get(List<Endpoint> endpoints) {
+		return endpoints.stream().map(Endpoint::getName).toArray(String[]::new);
 	}
 
 	/**

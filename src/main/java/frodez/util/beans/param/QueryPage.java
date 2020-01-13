@@ -2,11 +2,16 @@ package frodez.util.beans.param;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.github.pagehelper.IPage;
+import com.github.pagehelper.Page;
+import com.github.pagehelper.PageHelper;
 import frodez.constant.settings.DefDesc;
 import frodez.constant.settings.DefPage;
+import frodez.util.beans.result.Result;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import java.io.Serializable;
+import java.util.List;
+import java.util.function.Supplier;
 import javax.validation.constraints.Max;
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
@@ -30,25 +35,27 @@ public class QueryPage implements IPage, Serializable {
 
 	private static final long serialVersionUID = 1L;
 
+	private static final RowBounds NO_PAGE = new RowBounds(0, 0);
+
 	/**
 	 * 使用默认值
 	 * @see frodez.constant.settings.DefPage#QUERY_PAGE
-	 * @see frodez.constant.settings.DefPage#PAGE_NUM
-	 * @see frodez.constant.settings.DefPage#PAGE_SIZE
+	 * @see frodez.constant.settings.DefPage#NUM
+	 * @see frodez.constant.settings.DefPage#SIZE
 	 */
 	public QueryPage() {
-		this.pageNum = DefPage.PAGE_NUM;
-		this.pageSize = DefPage.PAGE_SIZE;
+		this.pageNum = DefPage.NUM;
+		this.pageSize = DefPage.SIZE;
 	}
 
 	/**
 	 * 构造函数<br>
 	 * pageNum为默认值
-	 * @see frodez.constant.settings.DefPage#PAGE_NUM
+	 * @see frodez.constant.settings.DefPage#NUM
 	 * @param pageSize
 	 */
 	public QueryPage(Integer pageSize) {
-		this.pageNum = DefPage.PAGE_NUM;
+		this.pageNum = DefPage.NUM;
 		this.pageSize = pageSize;
 	}
 
@@ -68,7 +75,7 @@ public class QueryPage implements IPage, Serializable {
 	@Getter
 	@NotNull
 	@Min(0)
-	@ApiModelProperty(value = "页码数,必须大于等于0", example = "5")
+	@ApiModelProperty(value = "页码数,为0时查询全部")
 	private Integer pageNum;
 
 	/**
@@ -76,9 +83,9 @@ public class QueryPage implements IPage, Serializable {
 	 */
 	@Getter
 	@NotNull
-	@Min(0)
-	@Max(DefPage.MAX_PAGE_SIZE)
-	@ApiModelProperty(value = "单页容量,必须大于0且小于限定值", example = "20")
+	@Min(1)
+	@Max(DefPage.MAX_SIZE)
+	@ApiModelProperty(value = "单页容量")
 	private Integer pageSize;
 
 	/**
@@ -99,7 +106,36 @@ public class QueryPage implements IPage, Serializable {
 	 * @date 2019-06-17
 	 */
 	public RowBounds toRowBounds() {
+		if (pageNum == 0) {
+			return NO_PAGE;
+		}
 		return new RowBounds((pageNum - 1) * pageSize, pageSize);
+	}
+
+	/**
+	 * 开始分页查询<br>
+	 * <strong>请严格遵循PageHelper插件的使用方式!</strong>
+	 * @see <url>https://github.com/pagehelper/Mybatis-PageHelper/blob/master/wikis/zh/HowToUse.md</url>
+	 * @author Frodez
+	 * @param <E>
+	 * @date 2019-12-09
+	 */
+	public <E> Page<E> page(Supplier<List<E>> supplier) {
+		PageHelper.startPage(this);
+		return (Page<E>) supplier.get();
+	}
+
+	/**
+	 * 开始分页查询<br>
+	 * <strong>请严格遵循PageHelper插件的使用方式!</strong>
+	 * @see <url>https://github.com/pagehelper/Mybatis-PageHelper/blob/master/wikis/zh/HowToUse.md</url>
+	 * @author Frodez
+	 * @param <E>
+	 * @date 2019-12-09
+	 */
+	public <E> Result start(Supplier<List<E>> supplier) {
+		PageHelper.startPage(this);
+		return Result.page((Page<E>) supplier.get());
 	}
 
 }

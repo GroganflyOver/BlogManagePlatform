@@ -2,8 +2,9 @@ package frodez.config.aop.request.advisor;
 
 import com.google.common.util.concurrent.RateLimiter;
 import frodez.config.aop.request.annotation.Limit;
+import frodez.config.aop.request.annotation.Limit.LimitHelper;
+import frodez.config.aop.request.annotation.RepeatLock;
 import frodez.config.aop.util.AOPUtil;
-import frodez.constant.errors.exception.CodeCheckException;
 import frodez.constant.settings.DefTime;
 import frodez.util.beans.pair.Pair;
 import frodez.util.beans.result.Result;
@@ -17,6 +18,7 @@ import org.springframework.aop.ClassFilter;
 import org.springframework.aop.MethodMatcher;
 import org.springframework.aop.Pointcut;
 import org.springframework.aop.PointcutAdvisor;
+import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.stereotype.Component;
 
 /**
@@ -100,23 +102,23 @@ public class AsyncLimitUserAdvisor implements PointcutAdvisor {
 					 */
 					@Override
 					public boolean matches(Method method, Class<?> targetClass) {
+						if (!AOPUtil.isController(targetClass)) {
+							return false;
+						}
 						//这里可以进行运行前检查
-						Limit annotation = method.getAnnotation(Limit.class);
+						Limit annotation = LimitHelper.get(method, targetClass);
 						if (annotation == null) {
 							return false;
 						}
-						if (annotation.value() <= 0) {
-							throw new CodeCheckException("方法", ReflectUtil.getFullMethodName(method),
-								"的每秒每token限制请求数必须大于0!");
+						//如果在类上发现了RepeatLock,则让给RepeatLock
+						if (AnnotationUtils.findAnnotation(method, RepeatLock.class) != null) {
+							return false;
 						}
-						if (annotation.timeout() <= 0) {
-							throw new CodeCheckException("方法", ReflectUtil.getFullMethodName(method), "的超时时间必须大于0!");
-						}
+						LimitHelper.check(method, annotation);
 						if (!AOPUtil.isAsyncResultAsReturn(method)) {
 							return false;
 						}
-						Pair<RateLimiter, Long> pair = new Pair<>(RateLimiter.create(annotation.value()), annotation
-							.timeout());
+						Pair<RateLimiter, Long> pair = new Pair<>(RateLimiter.create(annotation.value()), annotation.timeout());
 						limitCache.put(ReflectUtil.getFullMethodName(method), pair);
 						return true;
 					}

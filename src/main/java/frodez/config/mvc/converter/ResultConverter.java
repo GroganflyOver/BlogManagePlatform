@@ -1,7 +1,6 @@
 package frodez.config.mvc.converter;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.exc.InvalidDefinitionException;
 import frodez.constant.settings.DefCharset;
 import frodez.util.beans.result.Result;
 import frodez.util.common.StrUtil;
@@ -14,7 +13,6 @@ import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpOutputMessage;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.AbstractGenericHttpMessageConverter;
-import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.lang.Nullable;
@@ -29,7 +27,7 @@ public class ResultConverter extends AbstractGenericHttpMessageConverter<Object>
 
 	public ResultConverter() {
 		setDefaultCharset(DefCharset.UTF_8_CHARSET);
-		setSupportedMediaTypes(Arrays.asList(MediaType.APPLICATION_JSON_UTF8));
+		setSupportedMediaTypes(Arrays.asList(MediaType.APPLICATION_JSON));
 		Assert.isTrue(JSONUtil.mapper().canSerialize(Result.class), "Result can't be serialized!");
 		Assert.isTrue(JSONUtil.mapper().canDeserialize(JSONUtil.mapper().getTypeFactory().constructType(Result.class)),
 			"Result can't be deserialized!");
@@ -51,8 +49,7 @@ public class ResultConverter extends AbstractGenericHttpMessageConverter<Object>
 	}
 
 	@Override
-	protected Object readInternal(Class<?> clazz, HttpInputMessage inputMessage) throws IOException,
-		HttpMessageNotReadableException {
+	protected Object readInternal(Class<?> clazz, HttpInputMessage inputMessage) throws IOException, HttpMessageNotReadableException {
 		return Result.reader().readValue(inputMessage.getBody());
 	}
 
@@ -63,24 +60,20 @@ public class ResultConverter extends AbstractGenericHttpMessageConverter<Object>
 	}
 
 	@Override
-	protected void writeInternal(Object object, @Nullable Type type, HttpOutputMessage outputMessage)
-		throws IOException, HttpMessageNotWritableException {
+	protected void writeInternal(Object object, @Nullable Type type, HttpOutputMessage outputMessage) throws IOException,
+		HttpMessageNotWritableException {
 		try {
 			OutputStream outputStream = outputMessage.getBody();
 			//对通用Result采用特殊的优化过的方式
-			byte[] cacheBytes = ((Result) object).cache();
+			byte[] cacheBytes = ((Result) object).cacheBytes();
 			if (cacheBytes != null) {
 				outputStream.write(cacheBytes);
 			} else {
 				Result.writer().writeValue(outputStream, object);
 			}
 			outputStream.flush();
-		} catch (InvalidDefinitionException ex) {
-			throw new HttpMessageConversionException(StrUtil.concat("Type definition error: ", ex.getType().toString()),
-				ex);
 		} catch (JsonProcessingException ex) {
-			throw new HttpMessageNotWritableException(StrUtil.concat("Could not write JSON: ", ex.getOriginalMessage()),
-				ex);
+			throw new HttpMessageNotWritableException(StrUtil.concat("Could not write JSON: ", ex.getOriginalMessage()), ex);
 		}
 	}
 

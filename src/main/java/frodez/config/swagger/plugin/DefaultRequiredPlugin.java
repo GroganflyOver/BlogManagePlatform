@@ -1,10 +1,17 @@
 package frodez.config.swagger.plugin;
 
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 import com.google.common.base.Optional;
 import frodez.config.swagger.SwaggerProperties;
+import io.swagger.annotations.ApiModelProperty;
+import java.lang.reflect.AnnotatedElement;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotEmpty;
+import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Null;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.annotation.Order;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
@@ -14,8 +21,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
+import springfox.documentation.schema.Annotations;
 import springfox.documentation.service.ResolvedMethodParameter;
 import springfox.documentation.spi.DocumentationType;
+import springfox.documentation.spi.schema.ModelPropertyBuilderPlugin;
+import springfox.documentation.spi.schema.contexts.ModelPropertyContext;
 import springfox.documentation.spi.service.ParameterBuilderPlugin;
 import springfox.documentation.spi.service.contexts.ParameterContext;
 import springfox.documentation.swagger.common.SwaggerPluginSupport;
@@ -31,8 +41,8 @@ import springfox.documentation.swagger.common.SwaggerPluginSupport;
  */
 @Component
 @Profile({ "dev", "test" })
-@Order(SwaggerPluginSupport.SWAGGER_PLUGIN_ORDER + 100)
-public class DefaultRequiredPlugin implements ParameterBuilderPlugin {
+@Order(SwaggerPluginSupport.SWAGGER_PLUGIN_ORDER + 300)
+public class DefaultRequiredPlugin implements ParameterBuilderPlugin, ModelPropertyBuilderPlugin {
 
 	private boolean useCustomerizedPluggins = false;
 
@@ -67,8 +77,8 @@ public class DefaultRequiredPlugin implements ParameterBuilderPlugin {
 	 * @date 2019-06-11
 	 */
 	private boolean hasNullableAnnotation(ResolvedMethodParameter methodParameter) {
-		return methodParameter.hasParameterAnnotation(Null.class) || methodParameter.hasParameterAnnotation(
-			Nullable.class) || methodParameter.hasParameterAnnotation(reactor.util.annotation.Nullable.class);
+		return methodParameter.hasParameterAnnotation(Null.class) || methodParameter.hasParameterAnnotation(Nullable.class) || methodParameter
+			.hasParameterAnnotation(reactor.util.annotation.Nullable.class);
 	}
 
 	/**
@@ -102,6 +112,50 @@ public class DefaultRequiredPlugin implements ParameterBuilderPlugin {
 			return pathVariable.get().required();
 		}
 		return false;
+	}
+
+	@Override
+	public void apply(ModelPropertyContext context) {
+		resolveAnnotatedElement(context);
+		resolveBeanPropertyDefinition(context);
+	}
+
+	private void resolveAnnotatedElement(ModelPropertyContext context) {
+		AnnotatedElement annotated = context.getAnnotatedElement().orNull();
+		if (annotated == null) {
+			return;
+		}
+		if (AnnotationUtils.findAnnotation(annotated, NotNull.class) != null) {
+			context.getBuilder().required(true);
+		} else if (AnnotationUtils.findAnnotation(annotated, NotEmpty.class) != null) {
+			context.getBuilder().required(true);
+		} else if (AnnotationUtils.findAnnotation(annotated, NotBlank.class) != null) {
+			context.getBuilder().required(true);
+		} else {
+			ApiModelProperty annotation = AnnotationUtils.findAnnotation(annotated, ApiModelProperty.class);
+			if (annotation != null && annotation.required()) {
+				//如果ApiModelProperty上强制要求required为true,则为true
+				context.getBuilder().required(true);
+			} else {
+				context.getBuilder().required(false);
+			}
+		}
+	}
+
+	private void resolveBeanPropertyDefinition(ModelPropertyContext context) {
+		BeanPropertyDefinition beanPropertyDefinition = context.getBeanPropertyDefinition().orNull();
+		if (beanPropertyDefinition == null) {
+			return;
+		}
+		if (Annotations.findPropertyAnnotation(beanPropertyDefinition, NotNull.class).isPresent()) {
+			context.getBuilder().required(true);
+		} else if (Annotations.findPropertyAnnotation(beanPropertyDefinition, NotEmpty.class).isPresent()) {
+			context.getBuilder().required(true);
+		} else if (Annotations.findPropertyAnnotation(beanPropertyDefinition, NotBlank.class).isPresent()) {
+			context.getBuilder().required(true);
+		} else {
+			context.getBuilder().required(false);
+		}
 	}
 
 }

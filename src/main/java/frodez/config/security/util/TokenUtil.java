@@ -1,12 +1,14 @@
 package frodez.config.security.util;
 
 import com.auth0.jwt.JWT;
+import com.auth0.jwt.JWTCreator.Builder;
+import com.auth0.jwt.JWTVerifier;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import frodez.config.security.settings.SecurityProperties;
+import frodez.dao.model.result.user.UserEndpointDetail;
 import frodez.util.spring.ContextUtil;
 import java.util.Date;
-import java.util.List;
 import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.context.annotation.DependsOn;
@@ -30,12 +32,22 @@ public class TokenUtil {
 	private static Algorithm algorithm;
 
 	/**
+	 * 验证过期
+	 */
+	private static JWTVerifier verifier;
+
+	/**
+	 * 不验证过期
+	 */
+	private static JWTVerifier expiredVerifier;
+
+	/**
 	 * 签发者
 	 */
 	private static String issuer;
 
 	/**
-	 * 是否过期
+	 * 是否过期，true为会过期
 	 */
 	private static boolean expired = false;
 
@@ -47,7 +59,7 @@ public class TokenUtil {
 	/**
 	 * 声明
 	 */
-	private static String claim;
+	private static String authorityClaim;
 
 	/**
 	 * HttpHeader名称
@@ -71,50 +83,49 @@ public class TokenUtil {
 		issuer = properties.getJwt().getIssuer();
 		expiration = properties.getJwt().getExpiration() * 1000;
 		expired = expiration > 0;
-		claim = properties.getJwt().getAuthorityClaim();
+		authorityClaim = properties.getJwt().getAuthorityClaim();
 		header = properties.getJwt().getHeader();
 		tokenPrefix = properties.getJwt().getTokenPrefix();
 		tokenPrefixLength = tokenPrefix.length();
+		verifier = JWT.require(algorithm).withIssuer(issuer).build();
+		expiredVerifier = JWT.require(algorithm).acceptExpiresAt(0).withIssuer(issuer).build();
 		Assert.notNull(algorithm, "algorithm must not be null");
 		Assert.notNull(issuer, "issuer must not be null");
 		Assert.notNull(expiration, "expiration must not be null");
-		Assert.notNull(claim, "claim must not be null");
+		Assert.notNull(authorityClaim, "authorityClaim must not be null");
 		Assert.notNull(header, "header must not be null");
 		Assert.notNull(tokenPrefix, "tokenPrefix must not be null");
+		Assert.notNull(verifier, "verifier must not be null");
+		Assert.notNull(expiredVerifier, "expireAbleVerifier must not be null");
+	}
+
+	/**
+	 * 基本builder
+	 * @author Frodez
+	 * @date 2019-12-29
+	 */
+	private static Builder baseBuilder() {
+		long now = System.currentTimeMillis();
+		Builder builder = JWT.create();
+		builder.withIssuer(issuer);
+		builder.withIssuedAt(new Date(now));
+		if (expired) {
+			builder.withExpiresAt(new Date(now + expiration));
+		}
+		return builder;
 	}
 
 	/**
 	 * 生成token
 	 * @author Frodez
-	 * @param UserDetails 用户信息
+	 * @param UserEndpointDetail 用户信息
 	 * @date 2018-11-21
 	 */
-	public static String generate(UserDetails user) {
-		long now = System.currentTimeMillis();
-		if (expired) {
-			return JWT.create().withIssuer(issuer).withIssuedAt(new Date(now)).withExpiresAt(new Date(now + expiration))
-				.withSubject(user.getUsername()).withArrayClaim(claim, AuthorityUtil.get(user)).sign(algorithm);
-		} else {
-			return JWT.create().withIssuer(issuer).withIssuedAt(new Date(now)).withSubject(user.getUsername())
-				.withArrayClaim(claim, AuthorityUtil.get(user)).sign(algorithm);
-		}
-	}
-
-	/**
-	 * 生成token
-	 * @author Frodez
-	 * @param UserDetails 用户信息
-	 * @date 2018-11-21
-	 */
-	public static String generate(String username, List<String> authorities) {
-		long now = System.currentTimeMillis();
-		if (expired) {
-			return JWT.create().withIssuer(issuer).withIssuedAt(new Date(now)).withExpiresAt(new Date(now + expiration))
-				.withSubject(username).withArrayClaim(claim, authorities.toArray(String[]::new)).sign(algorithm);
-		} else {
-			return JWT.create().withIssuer(issuer).withIssuedAt(new Date(now)).withSubject(username).withArrayClaim(
-				claim, authorities.toArray(String[]::new)).sign(algorithm);
-		}
+	public static String generate(UserEndpointDetail user) {
+		Builder builder = baseBuilder();
+		builder.withSubject(user.getUser().getName());
+		builder.withArrayClaim(authorityClaim, AuthorityUtil.get(user.getEndpoints()));
+		return builder.sign(algorithm);
 	}
 
 	/**
@@ -124,25 +135,19 @@ public class TokenUtil {
 	 * @date 2018-11-21
 	 */
 	public static UserDetails verify(String token) {
-		DecodedJWT jwt = null;
-		if (expired) {
-			//前面已经将exp置为合适的过期时间了,这里只需要判断其是否超过当前时间即可.
-			jwt = JWT.require(algorithm).acceptExpiresAt(0).withIssuer(issuer).build().verify(token);
-		} else {
-			jwt = JWT.require(algorithm).withIssuer(issuer).build().verify(token);
-		}
-		return new User(jwt.getSubject(), "N/A", AuthorityUtil.make(jwt.getClaim(claim).asArray(String.class)));
+		//前面已经将exp置为合适的过期时间了,这里只需要判断其是否超过当前时间即可.
+		DecodedJWT jwt = expired ? expiredVerifier.verify(token) : verifier.verify(token);
+		return new User(jwt.getSubject(), "N/A", AuthorityUtil.make(jwt.getClaim(authorityClaim).asArray(String.class)));
 	}
 
 	/**
-	 * 验证token,且不考虑过期
+	 * 验证token,且一定考虑过期
 	 * @author Frodez
-	 * @param token
 	 * @date 2018-11-21
 	 */
 	public static UserDetails verifyWithNoExpired(String token) {
-		DecodedJWT jwt = JWT.require(algorithm).withIssuer(issuer).build().verify(token);
-		return new User(jwt.getSubject(), "N/A", AuthorityUtil.make(jwt.getClaim(claim).asArray(String.class)));
+		DecodedJWT jwt = verifier.verify(token);
+		return new User(jwt.getSubject(), "N/A", AuthorityUtil.make(jwt.getClaim(authorityClaim).asArray(String.class)));
 	}
 
 	/**

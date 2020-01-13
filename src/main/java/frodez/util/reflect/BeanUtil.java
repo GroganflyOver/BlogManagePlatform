@@ -1,5 +1,6 @@
 package frodez.util.reflect;
 
+import frodez.util.common.PrimitiveUtil;
 import frodez.util.common.StrUtil;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -11,9 +12,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cglib.beans.BeanCopier;
 import org.springframework.cglib.beans.BeanMap;
 import org.springframework.cglib.reflect.FastClass;
@@ -26,20 +29,19 @@ import org.springframework.util.Assert;
  * @author Frodez
  * @date 2019-01-15
  */
+@Slf4j
 @UtilityClass
 public class BeanUtil {
 
 	private static final Map<String, BeanCopier> COPIER_CACHE = new ConcurrentHashMap<>();
-
-	private static final Map<Class<?>, List<Field>> FIELD_CACHE = new ConcurrentHashMap<>();
 
 	private static final Map<Class<?>, List<FastMethod>> SETTER_CACHE = new ConcurrentHashMap<>();
 
 	private static final Map<Class<?>, List<FastMethod>> NOT_NULL_FIELD_SETTER_CACHE = new ConcurrentHashMap<>();
 
 	private static BeanCopier getCopier(Object source, Object target) {
-		return COPIER_CACHE.computeIfAbsent(StrUtil.concat(source.getClass().getName(), target.getClass().getName()),
-			i -> BeanCopier.create(source.getClass(), target.getClass(), false));
+		return COPIER_CACHE.computeIfAbsent(StrUtil.concat(source.getClass().getName(), target.getClass().getName()), i -> BeanCopier.create(source
+			.getClass(), target.getClass(), false));
 	}
 
 	/**
@@ -54,19 +56,27 @@ public class BeanUtil {
 	}
 
 	/**
+	 * copy对象属性<br>
+	 * 建议对数据库insert时使用本方法，update时使用cover方法。<br>
+	 * @see frodez.util.reflect.BeanUtil#cover(Object, Object)
+	 * @author Frodez
+	 * @param supplier 对象提供者
+	 * @date 2019-01-15
+	 */
+	public static <T> T copy(Object source, Supplier<T> supplier) {
+		T target = supplier.get();
+		getCopier(source, target).copy(source, target, null);
+		return target;
+	}
+
+	/**
 	 * 批量copy对象属性<br>
-	 * <strong>只有当除了直接copy外不做任何额外处理的情况下,才能使用本方法</strong>
 	 * @author Frodez
 	 * @date 2019-06-19
 	 */
-	public static <E, T> List<T> copies(List<E> sources, Class<T> klass) {
+	public static <E, T> List<T> copies(List<E> sources, Supplier<T> supplier) {
 		Assert.notNull(sources, "sources must not be null");
-		Assert.notNull(klass, "klass must not be null");
-		return sources.stream().map((iter) -> {
-			T item = ReflectUtil.newInstance(klass);
-			copy(iter, item);
-			return item;
-		}).collect(Collectors.toList());
+		return sources.stream().map((iter) -> copy(iter, supplier)).collect(Collectors.toList());
 	}
 
 	/**
@@ -122,8 +132,27 @@ public class BeanUtil {
 	@SuppressWarnings("unchecked")
 	public static Map<String, Object> map(Object bean) {
 		Assert.notNull(bean, "bean must not be null");
-		Map<String, Object> map = new HashMap<>(BeanMap.create(bean));
-		return map;
+		return new HashMap<>(BeanMap.create(bean));
+	}
+
+	/**
+	 * map转bean
+	 * @author Frodez
+	 * @throws InvocationTargetException
+	 * @date 2019-02-08
+	 */
+	@SneakyThrows
+	public static <T> T as(Map<String, Object> map, Supplier<T> supplier) {
+		Assert.notNull(map, "map must not be null");
+		T bean = supplier.get();
+		try {
+			BeanMap.create(bean).putAll(map);
+		} catch (Exception e) {
+			log.error("map转bean出现异常,采用安全方式继续...异常消息:{}", e.getMessage());
+			//如果出错则采用安全但较慢的方式
+			safeAs(map, bean);
+		}
+		return bean;
 	}
 
 	/**
@@ -135,8 +164,34 @@ public class BeanUtil {
 	@SneakyThrows
 	public static <T> T as(Map<String, Object> map, Class<T> klass) {
 		Assert.notNull(map, "map must not be null");
-		T bean = ReflectUtil.newInstance(klass);
-		BeanMap.create(bean).putAll(map);
+		T bean = ReflectUtil.instance(klass);
+		try {
+			BeanMap.create(bean).putAll(map);
+		} catch (Exception e) {
+			log.error("map转bean出现异常,采用安全方式继续...异常消息:{}", e.getMessage());
+			//如果出错则采用安全但较慢的方式
+			safeAs(map, bean);
+		}
+		return bean;
+	}
+
+	@SuppressWarnings("unchecked")
+	@SneakyThrows
+	private static <T> T safeAs(Map<String, Object> map, T bean) {
+		List<FastMethod> methods = setters(bean.getClass());
+		for (FastMethod fastMethod : methods) {
+			String field = StrUtil.lowerFirst(fastMethod.getName().substring(3));
+			Object value = map.get(field);
+			if (value == null) {
+				continue;
+			}
+			if (PrimitiveUtil.isBaseType(value.getClass())) {
+				value = PrimitiveUtil.cast(value, fastMethod.getParameterTypes()[0]);
+				fastMethod.invoke(bean, new Object[] { value });
+			} else {
+				fastMethod.invoke(bean, new Object[] { value });
+			}
+		}
 		return bean;
 	}
 
@@ -156,17 +211,16 @@ public class BeanUtil {
 		List<FastMethod> methods = setters(bean.getClass());
 		int length = methods.size();
 		for (int i = 0; i < length; i++) {
-			methods.get(i).invoke(bean, ReflectUtil.EMPTY_ARRAY_OBJECTS);
+			methods.get(i).invoke(bean, ReflectUtil.EMPTY_ARRAY);
 		}
 	}
 
 	private static boolean isSetter(Method method) {
-		return method.getName().startsWith("set") && method.getReturnType() == void.class && method
-			.getParameterCount() == 1 && Modifier.PUBLIC == method.getModifiers();
+		return method.getName().startsWith("set") && method.getReturnType() == void.class && method.getParameterCount() == 1
+			&& Modifier.PUBLIC == method.getModifiers();
 	}
 
-	private static boolean isPrivateAndNotNullField(Field field, Object bean) throws IllegalArgumentException,
-		IllegalAccessException {
+	private static boolean isPrivateAndNotNullField(Field field, Object bean) throws IllegalArgumentException, IllegalAccessException {
 		return Modifier.PRIVATE == field.getModifiers() && field.trySetAccessible() && field.get(bean) != null;
 	}
 
@@ -177,26 +231,22 @@ public class BeanUtil {
 	 */
 	public static List<Field> getSetterFields(Class<?> klass) {
 		Assert.notNull(klass, "klass must not be null");
-		List<Field> fields = FIELD_CACHE.get(klass);
-		if (fields == null) {
-			fields = new ArrayList<>();
-			List<Method> setters = new ArrayList<>();
-			for (Method method : klass.getMethods()) {
-				if (isSetter(method)) {
-					setters.add(method);
-				}
+		List<Field> fields = new ArrayList<>();
+		List<Method> setters = new ArrayList<>();
+		for (Method method : klass.getMethods()) {
+			if (isSetter(method)) {
+				setters.add(method);
 			}
-			for (Field field : klass.getDeclaredFields()) {
-				if (Modifier.PRIVATE == field.getModifiers()) {
-					for (Method method : setters) {
-						if (method.getName().endsWith(StrUtil.upperFirst(field.getName()))) {
-							fields.add(field);
-							break;
-						}
+		}
+		for (Field field : klass.getDeclaredFields()) {
+			if (Modifier.PRIVATE == field.getModifiers()) {
+				for (Method method : setters) {
+					if (method.getName().endsWith(StrUtil.upperFirst(field.getName()))) {
+						fields.add(field);
+						break;
 					}
 				}
 			}
-			FIELD_CACHE.put(klass, fields);
 		}
 		return Collections.unmodifiableList(fields);
 	}
@@ -234,11 +284,10 @@ public class BeanUtil {
 	@SneakyThrows
 	public static List<FastMethod> getDefaultNotNullSetters(Class<?> klass) {
 		Assert.notNull(klass, "klass must not be null");
-		return Collections.unmodifiableList(defaultNotNullSetters(ReflectUtil.newInstance(klass)));
+		return Collections.unmodifiableList(defaultNotNullSetters(ReflectUtil.instance(klass)));
 	}
 
-	private static List<FastMethod> defaultNotNullSetters(Object bean) throws IllegalArgumentException,
-		IllegalAccessException {
+	private static List<FastMethod> defaultNotNullSetters(Object bean) throws IllegalArgumentException, IllegalAccessException {
 		Class<?> klass = bean.getClass();
 		List<FastMethod> methods = NOT_NULL_FIELD_SETTER_CACHE.get(klass);
 		if (methods == null) {
@@ -279,11 +328,11 @@ public class BeanUtil {
 	 */
 	@SneakyThrows
 	public static <T> T clearInstance(Class<T> klass) {
-		T bean = ReflectUtil.newInstance(klass);
+		T bean = ReflectUtil.instance(klass);
 		List<FastMethod> methods = defaultNotNullSetters(bean);
 		int length = methods.size();
 		for (int i = 0; i < length; i++) {
-			methods.get(i).invoke(bean, ReflectUtil.EMPTY_ARRAY_OBJECTS);
+			methods.get(i).invoke(bean, ReflectUtil.EMPTY_ARRAY);
 		}
 		return bean;
 	}

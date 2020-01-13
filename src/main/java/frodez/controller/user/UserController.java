@@ -2,17 +2,16 @@ package frodez.controller.user;
 
 import frodez.config.aop.request.annotation.RepeatLock;
 import frodez.config.security.util.UserUtil;
-import frodez.dao.param.user.Doregister;
-import frodez.dao.result.user.UserInfo;
-import frodez.service.user.facade.IAuthorityService;
+import frodez.config.swagger.annotation.Success;
+import frodez.dao.model.result.user.UserInfo;
+import frodez.dao.param.user.RegisterUser;
+import frodez.dao.param.user.UpdatePassword;
+import frodez.dao.param.user.UpdateUser;
 import frodez.service.user.facade.IUserService;
 import frodez.util.beans.result.Result;
-import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiParam;
-import io.swagger.annotations.ApiResponse;
-import io.swagger.annotations.ApiResponses;
-import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,60 +19,42 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 用户管理控制器
+ * 用户控制器
  * @author Frodez
- * @date 2018-12-01
+ * @date 2019-12-29
  */
+@RepeatLock
 @RestController
-@RequestMapping("/user")
-@Api(tags = "用户管理控制器")
+@RequestMapping(value = "/user", name = "用户控制器")
 public class UserController {
-
-	@Autowired
-	private IAuthorityService authorityService;
 
 	@Autowired
 	private IUserService userService;
 
-	@RepeatLock
-	@GetMapping(value = "/info/self", name = "查看本用户信息接口")
-	@ApiResponses(value = { @ApiResponse(code = 200, message = "成功", response = UserInfo.class) })
-	public Result getUserInfo() {
-		return Result.success(UserUtil.get());
-	}
-
-	@RepeatLock
-	@GetMapping(value = "/info/byId", name = "查看用户信息接口")
-	@ApiResponses(value = { @ApiResponse(code = 200, message = "成功", response = UserInfo.class) })
-	public Result getUserInfoById(@ApiParam(value = "用户ID") Long userId) {
-		return authorityService.getUserInfo(userId);
-	}
-
-	@RepeatLock
-	@GetMapping(value = "/info/byName", name = "查看用户信息接口")
-	@ApiResponses(value = { @ApiResponse(code = 200, message = "成功", response = UserInfo.class) })
-	public Result getUserInfoByName(@ApiParam(value = "用户名") String userName) {
-		return authorityService.getUserInfo(userName);
-	}
-
-	@RepeatLock
-	@GetMapping(value = "/info/byIds", name = "批量查看用户信息接口")
-	@ApiResponses(value = { @ApiResponse(code = 200, message = "成功", response = UserInfo.class) })
-	public Result getUserInfosById(@RequestBody @ApiParam(value = "用户ID") List<Long> userIds) {
-		return authorityService.getUserInfosByIds(userIds, false);
-	}
-
-	@RepeatLock
-	@GetMapping(value = "/info/byNames", name = "批量查看用户信息接口")
-	@ApiResponses(value = { @ApiResponse(code = 200, message = "成功", response = UserInfo.class) })
-	public Result getUserInfosByName(@RequestBody @ApiParam(value = "用户名") List<String> userNames) {
-		return authorityService.getUserInfosByNames(userNames, false);
-	}
-
-	@RepeatLock
 	@PostMapping(value = "/register", name = "注册接口")
-	public Result register(@RequestBody Doregister param) {
+	public Result register(@RequestBody RegisterUser param) {
 		return userService.register(param);
+	}
+
+	@DeleteMapping(value = "/logoff", name = "注销接口")
+	public Result logoff(@ApiParam("用户名") String name, @ApiParam("密码") String password) {
+		return userService.logOff(name, password);
+	}
+
+	@GetMapping(value = "/self", name = "查看本用户信息接口")
+	@Success(UserInfo.class)
+	public Result getUserInfo() {
+		return Result.success(UserUtil.now());
+	}
+
+	@PostMapping(value = "/password/update", name = "更改用户密码信息接口")
+	public Result updatePassword(@RequestBody UpdatePassword param) {
+		return userService.updatePassword(param);
+	}
+
+	@PostMapping(value = "/update", name = "更改用户基本信息接口")
+	public Result updateUser(@RequestBody UpdateUser param) {
+		return userService.updateUser(param);
 	}
 
 }

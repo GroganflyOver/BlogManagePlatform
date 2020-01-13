@@ -29,17 +29,18 @@
 			<property name="forceBigDecimals" value="true" />
 		</javaTypeResolver>
 
+		<!-- 如果使用Generator手动启动,targetProject不需要加项目名;否则需要加项目名在最前面 -->
 		<!-- model包路径 -->
-		<javaModelGenerator targetPackage="frodez.dao.model.task"
-			targetProject="BlogManagePlatform/src/main/java" />
+		<javaModelGenerator targetPackage="frodez.dao.model.table.config"
+			targetProject="src/main/java" />
 		<!-- mapper.xml包路径 -->
-		<sqlMapGenerator targetPackage="frodez.dao.mapper.task"
-			targetProject="BlogManagePlatform/src/main/java" />
+		<sqlMapGenerator targetPackage="frodez.dao.mapper.config"
+			targetProject="src/main/java" />
 		<!-- mapper包路径 -->
-		<javaClientGenerator targetPackage="frodez.dao.mapper.task"
-			targetProject="BlogManagePlatform/src/main/java" type="XMLMAPPER" />
+		<javaClientGenerator targetPackage="frodez.dao.mapper.config"
+			targetProject="src/main/java" type="XMLMAPPER" />
 		<!-- 表配置 -->
-		<table tableName="tb_spring_task" domainObjectName="Task">
+		<table tableName="tb_role_setting" domainObjectName="RoleSetting">
 			<generatedKey column="id" sqlStatement="Mysql" identity="true" />
 		</table>
 	</context>

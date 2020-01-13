@@ -1,11 +1,14 @@
 package frodez.util.reflect;
 
-import frodez.util.beans.pair.Pair;
+import frodez.constant.settings.DefStr;
 import frodez.util.common.StrUtil;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
 import org.springframework.cglib.reflect.FastClass;
@@ -15,16 +18,20 @@ import org.springframework.util.Assert;
 
 /**
  * 反射工具类<br>
- * 建议不要在项目初始化阶段使用,而用于日常业务或者已经初始化完毕后。<br>
+ * 警告:对需要动态修改类的情况不适用。<br>
  * @author Frodez
  * @date 2019-01-13
  */
 @UtilityClass
 public class ReflectUtil {
 
-	public static final Object[] EMPTY_ARRAY_OBJECTS = new Object[] { null };
+	public static final Object[] EMPTY_ARRAY = new Object[] { null };
 
-	private static final Map<Class<?>, Pair<FastClass, FastMethod[]>> CGLIB_CACHE = new ConcurrentHashMap<>();
+	private static final Map<Class<?>, Table> CGLIB_CACHE = new ConcurrentHashMap<>();
+
+	private static final Map<String, MethodHandle> GETTER_CACHE = new ConcurrentHashMap<>();
+
+	private static final Map<String, MethodHandle> SETTER_CACHE = new ConcurrentHashMap<>();
 
 	/**
 	 * 对象实例化
@@ -33,8 +40,19 @@ public class ReflectUtil {
 	 */
 	@SneakyThrows
 	@SuppressWarnings("unchecked")
-	public <T> T newInstance(Class<T> klass) {
+	public static <T> T instance(Class<T> klass) {
 		return (T) getFastClass(klass).newInstance();
+	}
+
+	/**
+	 * 对象实例化
+	 * @author Frodez
+	 * @date 2019-06-19
+	 */
+	@SneakyThrows
+	public static <T> Supplier<T> supplier(Class<T> klass) {
+		Assert.notNull(klass, "klass must not be null");
+		return () -> instance(klass);
 	}
 
 	/**
@@ -43,18 +61,35 @@ public class ReflectUtil {
 	 * @date 2019-04-12
 	 */
 	public static FastClass getFastClass(Class<?> klass) {
+		return getFastClass(klass, false);
+	}
+
+	/**
+	 * 获取FastClass,并初始化所有FastMethod。类型会被缓存。
+	 * @author Frodez
+	 * @date 2019-04-12
+	 */
+	public static FastClass getFastClass(Class<?> klass, boolean initialized) {
 		Assert.notNull(klass, "klass must not be null");
-		Pair<FastClass, FastMethod[]> pair = CGLIB_CACHE.get(klass);
-		if (pair == null) {
-			FastClass fastClass = FastClass.create(klass);
-			FastMethod[] methods = new FastMethod[fastClass.getMaxIndex() + 1];
-			pair = new Pair<>();
-			pair.setKey(fastClass);
-			pair.setValue(methods);
-			CGLIB_CACHE.put(klass, pair);
-			return fastClass;
+		Table table = CGLIB_CACHE.get(klass);
+		if (table == null) {
+			table = new Table(klass);
+			if (initialized) {
+				table.init();
+			}
+			CGLIB_CACHE.put(klass, table);
+			return table.fastClass;
 		}
-		return pair.getKey();
+		return table.fastClass;
+	}
+
+	/**
+	 * 获取method
+	 * @author Frodez
+	 * @date 2019-12-18
+	 */
+	public static Method getMethod(Class<?> klass, String method, Class<?>... params) {
+		return getFastMethod(klass, method, params).getJavaMethod();
 	}
 
 	/**
@@ -67,34 +102,48 @@ public class ReflectUtil {
 	public static FastMethod getFastMethod(Class<?> klass, String method, Class<?>... params) {
 		Assert.notNull(klass, "klass must not be null");
 		Assert.notNull(method, "method must not be null");
-		Pair<FastClass, FastMethod[]> pair = CGLIB_CACHE.get(klass);
-		if (pair == null) {
-			FastClass fastClass = FastClass.create(klass);
-			FastMethod[] methods = new FastMethod[fastClass.getMaxIndex() + 1];
-			int index = fastClass.getIndex(method, params);
+		Table table = CGLIB_CACHE.get(klass);
+		if (table == null) {
+			table = new Table(klass);
+			FastMethod fastMethod = table.method(method, params);
+			CGLIB_CACHE.put(klass, table);
+			return fastMethod;
+		}
+		return table.method(method, params);
+	}
+
+	private class Table {
+
+		FastClass fastClass;
+
+		FastMethod[] methods;
+
+		public Table(Class<?> klass) {
+			this.fastClass = FastClass.create(klass);
+			methods = new FastMethod[fastClass.getMaxIndex() + 1];
+		}
+
+		public void init() {
+			for (Method method : fastClass.getClass().getMethods()) {
+				int index = fastClass.getIndex(method.getName(), method.getParameterTypes());
+				methods[index] = fastClass.getMethod(method);
+			}
+		}
+
+		@SneakyThrows
+		FastMethod method(String name, Class<?>... params) {
+			int index = fastClass.getIndex(name, params);
 			if (index < 0) {
 				throw new NoSuchMethodException();
 			}
-			FastMethod fastMethod = fastClass.getMethod(method, params);
-			methods[fastMethod.getIndex()] = fastMethod;
-			pair = new Pair<>();
-			pair.setKey(fastClass);
-			pair.setValue(methods);
-			CGLIB_CACHE.put(klass, pair);
-			return fastMethod;
+			FastMethod method = methods[index];
+			if (method == null) {
+				method = fastClass.getMethod(name, params);
+				methods[index] = method;
+			}
+			return method;
 		}
-		FastClass fastClass = pair.getKey();
-		int index = fastClass.getIndex(method, params);
-		if (index < 0) {
-			throw new NoSuchMethodException();
-		}
-		FastMethod[] methods = pair.getValue();
-		FastMethod fastMethod = methods[index];
-		if (fastMethod == null) {
-			fastMethod = fastClass.getMethod(method, params);
-			methods[index] = fastMethod;
-		}
-		return fastMethod;
+
 	}
 
 	/**
@@ -103,7 +152,7 @@ public class ReflectUtil {
 	 * @date 2019-01-13
 	 */
 	public static String getFullMethodName(Method method) {
-		return StrUtil.concat(method.getDeclaringClass().getName(), ".", method.getName());
+		return StrUtil.concat(method.getDeclaringClass().getName(), DefStr.POINT_SEPERATOR, method.getName());
 	}
 
 	/**
@@ -112,7 +161,7 @@ public class ReflectUtil {
 	 * @date 2019-01-13
 	 */
 	public static String getShortMethodName(Method method) {
-		return StrUtil.concat(method.getDeclaringClass().getSimpleName(), ".", method.getName());
+		return StrUtil.concat(method.getDeclaringClass().getSimpleName(), DefStr.POINT_SEPERATOR, method.getName());
 	}
 
 	/**
@@ -121,7 +170,7 @@ public class ReflectUtil {
 	 * @date 2019-06-05
 	 */
 	public static String getFullFieldName(Field field) {
-		return StrUtil.concat(field.getDeclaringClass().getName(), ".", field.getName());
+		return StrUtil.concat(field.getDeclaringClass().getName(), DefStr.POINT_SEPERATOR, field.getName());
 	}
 
 	/**
@@ -130,124 +179,105 @@ public class ReflectUtil {
 	 * @date 2019-06-05
 	 */
 	public static String getShortFieldName(Field field) {
-		return StrUtil.concat(field.getDeclaringClass().getSimpleName(), ".", field.getName());
+		return StrUtil.concat(field.getDeclaringClass().getSimpleName(), DefStr.POINT_SEPERATOR, field.getName());
 	}
 
 	/**
-	 * 将两个数转换为指定的类型然后进行比较<br>
-	 * 涉及类型:byte, short, int, long以及对应装箱类
+	 * 设置目标实体的指定字段的值
+	 * @param isExact value的类型是否匹配,如果匹配请选择true,速度更快
 	 * @author Frodez
-	 * @date 2019-05-17
+	 * @date 2019-12-29
 	 */
-	public static int compareTo(Object first, Object second, Class<?> baseClass) {
-		Assert.notNull(first, "first must not be null");
-		Assert.notNull(second, "second must not be null");
-		Assert.notNull(baseClass, "baseClass must not be null");
-		if (baseClass == Byte.class || baseClass == byte.class) {
-			return Byte.compare(primitiveAdapt(first, Byte.class), primitiveAdapt(second, Byte.class));
-		} else if (baseClass == Short.class || baseClass == short.class) {
-			return Short.compare(primitiveAdapt(first, Short.class), primitiveAdapt(second, Short.class));
-		} else if (baseClass == Integer.class || baseClass == int.class) {
-			return Integer.compare(primitiveAdapt(first, Integer.class), primitiveAdapt(second, Integer.class));
-		} else if (baseClass == Long.class || baseClass == Long.class) {
-			return Long.compare(primitiveAdapt(first, long.class), primitiveAdapt(second, Long.class));
-		} else {
-			throw new UnsupportedOperationException("只能用于byte, short, int, long以及对应装箱类!");
+	@SuppressWarnings("deprecation")
+	@SneakyThrows
+	public static void trySet(Class<?> klass, String fieldName, Object target, @Nullable Object value) {
+		Assert.notNull(klass, "klass must not be null");
+		Assert.notNull(fieldName, "fieldName must not be null");
+		Assert.notNull(target, "target must not be null");
+		Field field = klass.getDeclaredField(fieldName);
+		if (!field.isAccessible()) {
+			//暂时使用isAccessible api,因为可以减少判断次数提高性能
+			field.trySetAccessible();
 		}
+		String identifier = StrUtil.concat(klass.getCanonicalName(), DefStr.POINT_SEPERATOR, fieldName);
+		MethodHandle handle = SETTER_CACHE.get(identifier);
+		if (handle == null) {
+			handle = MethodHandles.lookup().unreflectSetter(field);
+			SETTER_CACHE.put(identifier, handle);
+		}
+		handle.invoke(target, value);
 	}
 
 	/**
-	 * 基本数据类型适配<br>
-	 * value可为空<br>
-	 * 涉及类型:byte, short, int, long以及对应装箱类,还有void
+	 * 设置目标实体的指定字段的值
+	 * @param isExact value的类型是否匹配,如果匹配请选择true,速度更快
 	 * @author Frodez
-	 * @param <T>
-	 * @date 2018-12-17
+	 * @date 2019-12-29
 	 */
-	public static <T> T primitiveAdapt(@Nullable Object value, Class<T> parameterClass) {
-		Assert.notNull(parameterClass, "parameterClass must not be null");
-		if (value == null) {
-			return null;
+	@SuppressWarnings("deprecation")
+	@SneakyThrows
+	public static void trySet(Field field, Object target, @Nullable Object value) {
+		Assert.notNull(field, "field must not be null");
+		Assert.notNull(target, "target must not be null");
+		if (!field.isAccessible()) {
+			//暂时使用isAccessible api,因为可以减少判断次数提高性能
+			field.trySetAccessible();
 		}
-		Class<?> valueClass = value.getClass();
-		if (valueClass == Byte.class || valueClass == byte.class) {
-			return castByteValue(parameterClass, (Byte) value);
-		} else if (valueClass == Short.class || valueClass == short.class) {
-			return castShortValue(parameterClass, (Short) value);
-		} else if (valueClass == Integer.class || valueClass == int.class) {
-			return castIntValue(parameterClass, (Integer) value);
-		} else if (valueClass == Long.class || valueClass == Long.class) {
-			return castLongValue(parameterClass, (Long) value);
+		String identifier = StrUtil.concat(field.getDeclaringClass().getCanonicalName(), DefStr.POINT_SEPERATOR, field.getName());
+		MethodHandle handle = SETTER_CACHE.get(identifier);
+		if (handle == null) {
+			handle = MethodHandles.lookup().unreflectGetter(field);
+			GETTER_CACHE.put(identifier, handle);
 		}
-		throw new UnsupportedOperationException("只能用于byte, short, int, long以及对应装箱类,以及void类型!");
+		handle.invoke(target, value);
 	}
 
-	@SuppressWarnings("unchecked")
-	private static <T> T castByteValue(Class<T> parameterClass, Byte value) {
-		if (parameterClass == Byte.class || parameterClass == byte.class) {
-			return (T) value;
+	/**
+	 * 获取目标实体的指定字段
+	 * @author Frodez
+	 * @date 2019-12-29
+	 */
+	@SuppressWarnings("deprecation")
+	@SneakyThrows
+	public static Object tryGet(Class<?> klass, String fieldName, Object target) {
+		Assert.notNull(klass, "klass must not be null");
+		Assert.notNull(fieldName, "fieldName must not be null");
+		Assert.notNull(target, "target must not be null");
+		Field field = klass.getDeclaredField(fieldName);
+		if (!field.isAccessible()) {
+			//暂时使用isAccessible api,因为可以减少判断次数提高性能
+			field.trySetAccessible();
 		}
-		if (parameterClass == Short.class || parameterClass == short.class) {
-			return (T) Short.valueOf(value.shortValue());
+		String identifier = StrUtil.concat(klass.getCanonicalName(), DefStr.POINT_SEPERATOR, fieldName);
+		MethodHandle handle = GETTER_CACHE.get(identifier);
+		if (handle == null) {
+			handle = MethodHandles.lookup().unreflectGetter(field);
+			GETTER_CACHE.put(identifier, handle);
 		}
-		if (parameterClass == Integer.class || parameterClass == int.class) {
-			return (T) Integer.valueOf(value.intValue());
-		}
-		if (parameterClass == Long.class || parameterClass == long.class) {
-			return (T) Long.valueOf(value.longValue());
-		}
-		return (T) value;
+		return handle.invoke(target);
 	}
 
-	@SuppressWarnings("unchecked")
-	private static <T> T castShortValue(Class<T> parameterClass, Short value) {
-		if (parameterClass == Byte.class || parameterClass == byte.class) {
-			return (T) Byte.valueOf(value.byteValue());
+	/**
+	 * 获取目标实体的指定字段
+	 * @author Frodez
+	 * @date 2019-12-29
+	 */
+	@SuppressWarnings("deprecation")
+	@SneakyThrows
+	public static Object tryGet(Field field, Object target) {
+		Assert.notNull(field, "field must not be null");
+		Assert.notNull(target, "target must not be null");
+		if (!field.isAccessible()) {
+			//暂时使用isAccessible api,因为可以减少判断次数提高性能
+			field.trySetAccessible();
 		}
-		if (parameterClass == Short.class || parameterClass == short.class) {
-			return (T) value;
+		String identifier = StrUtil.concat(field.getDeclaringClass().getCanonicalName(), DefStr.POINT_SEPERATOR, field.getName());
+		MethodHandle handle = GETTER_CACHE.get(identifier);
+		if (handle == null) {
+			handle = MethodHandles.lookup().unreflectGetter(field);
+			GETTER_CACHE.put(identifier, handle);
 		}
-		if (parameterClass == Integer.class || parameterClass == int.class) {
-			return (T) Integer.valueOf(value.intValue());
-		}
-		if (parameterClass == Long.class || parameterClass == long.class) {
-			return (T) Long.valueOf(value.longValue());
-		}
-		return (T) value;
-	}
-
-	@SuppressWarnings("unchecked")
-	private static <T> T castIntValue(Class<T> parameterClass, Integer value) {
-		if (parameterClass == Byte.class || parameterClass == byte.class) {
-			return (T) Byte.valueOf(value.byteValue());
-		}
-		if (parameterClass == Short.class || parameterClass == short.class) {
-			return (T) Short.valueOf(value.shortValue());
-		}
-		if (parameterClass == Integer.class || parameterClass == int.class) {
-			return (T) value;
-		}
-		if (parameterClass == Long.class || parameterClass == long.class) {
-			return (T) Long.valueOf(value.longValue());
-		}
-		return (T) value;
-	}
-
-	@SuppressWarnings("unchecked")
-	private static <T> T castLongValue(Class<T> parameterClass, Long value) {
-		if (parameterClass == Byte.class || parameterClass == byte.class) {
-			return (T) Byte.valueOf(value.byteValue());
-		}
-		if (parameterClass == Short.class || parameterClass == short.class) {
-			return (T) Short.valueOf(value.shortValue());
-		}
-		if (parameterClass == Integer.class || parameterClass == int.class) {
-			return (T) Integer.valueOf(value.intValue());
-		}
-		if (parameterClass == Long.class || parameterClass == long.class) {
-			return (T) value;
-		}
-		return (T) value;
+		return handle.invoke(target);
 	}
 
 }

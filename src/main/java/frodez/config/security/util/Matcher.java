@@ -2,9 +2,10 @@ package frodez.config.security.util;
 
 import frodez.config.security.settings.SecurityProperties;
 import frodez.constant.settings.PropertyKey;
-import frodez.dao.mapper.user.PermissionMapper;
-import frodez.dao.model.user.Permission;
+import frodez.dao.mapper.permission.EndpointMapper;
+import frodez.dao.model.table.permission.Endpoint;
 import frodez.util.common.StrUtil;
+import frodez.util.common.StreamUtil;
 import frodez.util.spring.ContextUtil;
 import frodez.util.spring.MVCUtil;
 import frodez.util.spring.PropertyUtil;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
+import javax.servlet.http.HttpServletRequest;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Component;
 import org.springframework.util.Assert;
@@ -66,12 +68,10 @@ public class Matcher {
 		permitPaths.add(errorPath);
 		basePermitPaths.add(errorPath);
 		//找出所有端点的url
-		MVCUtil.requestMappingHandlerMappingStream().map((iter) -> {
-			return iter.getHandlerMethods().entrySet();
-		}).flatMap(Collection::stream).forEach((entry) -> {
+		MVCUtil.requestMappingHandlerMappingStream().map((iter) -> iter.getHandlerMethods().entrySet()).flatMap(Collection::stream).forEach((
+			entry) -> {
 			//获取该端点的路径
-			String requestPath = StrUtil.concat(basePath, entry.getKey().getPatternsCondition().getPatterns().iterator()
-				.next());
+			String requestPath = StrUtil.concat(basePath, entry.getKey().getPatternsCondition().getPatterns().iterator().next());
 			//直接判断该路径是否需要验证,如果与免验证路径匹配则加入不需要验证路径,否则加入需要验证路径中
 			for (String path : basePermitPaths) {
 				if (matcher.match(path, requestPath)) {
@@ -95,38 +95,60 @@ public class Matcher {
 	 */
 	private static void checkCorrectPermissions(SecurityProperties securityProperties) {
 		if (securityProperties.getAuth().getPermissionCheck()) {
-			List<Permission> incorrectPermissions = ContextUtil.bean(PermissionMapper.class).selectAll().stream().filter(
-				(iter) -> {
-					return isPermitAllPath(StrUtil.concat(PropertyUtil.get(PropertyKey.Web.BASE_PATH), iter.getUrl()));
-				}).collect(Collectors.toList());
+
+			List<Endpoint> incorrectPermissions = StreamUtil.filterList(ContextUtil.bean(EndpointMapper.class).selectAll(), (iter) -> isPermitAllPath(
+				StrUtil.concat(PropertyUtil.get(PropertyKey.Web.BASE_PATH), iter.getPath())));
 			if (!incorrectPermissions.isEmpty()) {
-				StringBuilder builder = new StringBuilder();
-				for (int i = 0; i < incorrectPermissions.size() - 1; i++) {
-					Permission incorrect = incorrectPermissions.get(i);
-					builder.append("路径:").append(incorrect.getUrl()).append(", 名称:").append(incorrect.getName()).append(
-						", 描述: ").append(incorrect.getDescription()).append("\n");
-				}
-				Permission incorrect = incorrectPermissions.get(incorrectPermissions.size() - 1);
-				builder.append("路径:").append(incorrect.getUrl()).append(", 名称:").append(incorrect.getName()).append(
-					", 描述: ").append(incorrect.getDescription());
-				throw new RuntimeException("\n权限正确性检查发现存在错误权限!\n" + builder.toString());
+				String message = incorrectPermissions.stream().map((item) -> {
+					StringBuilder builder = new StringBuilder();
+					builder.append("路径:").append(item.getPath()).append(", 名称:").append(item.getName()).append(", 描述: ").append(item
+						.getDescription());
+					return builder.toString();
+				}).collect(Collectors.joining("\n"));
+				throw new RuntimeException("\n权限正确性检查发现存在错误权限!\n" + message);
 			}
 		}
 	}
 
 	/**
 	 * 判断路径是否需要验证<br>
+	 * 相比于isPermitAllPath方法,将不需要验证的路径全部缓存,加快速度。<br>
+	 * <strong> 可以使用本方法的情况下应该使用本方法!<br>
+	 * true为需要验证,false为不需要验证<br>
+	 * </strong>
+	 * @author Frodez
+	 * @date 2019-01-06
+	 */
+	public static boolean needVerify(HttpServletRequest request) {
+		return needVerifyPaths.contains(request.getRequestURI());
+	}
+
+	/**
+	 * 判断路径是否需要验证<br>
+	 * 相比于isPermitAllPath方法,将不需要验证的路径全部缓存,加快速度。<br>
 	 * 路径获取方式:<br>
 	 * <code>
 	 * HttpServletRequest request = ...;
 	 * String uri = request.getRequestURI();
 	 * </code><br>
-	 * <strong>true为需要验证,false为不需要验证</strong><br>
+	 * <strong> 可以使用本方法的情况下应该使用本方法!<br>
+	 * true为需要验证,false为不需要验证<br>
+	 * </strong>
 	 * @author Frodez
 	 * @date 2019-01-06
 	 */
 	public static boolean needVerify(String uri) {
 		return needVerifyPaths.contains(uri);
+	}
+
+	/**
+	 * 判断是否为免验证路径<br>
+	 * <strong>true为需要验证,false为不需要验证</strong><br>
+	 * @author Frodez
+	 * @date 2019-03-10
+	 */
+	public static boolean isPermitAllPath(HttpServletRequest request) {
+		return isPermitAllPath(request.getRequestURI());
 	}
 
 	/**

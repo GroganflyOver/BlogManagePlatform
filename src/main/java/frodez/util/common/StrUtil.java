@@ -1,9 +1,11 @@
 package frodez.util.common;
 
-import frodez.constant.settings.DefDecimal;
-import java.math.BigDecimal;
+import frodez.constant.settings.DefStr;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Collection;
 import lombok.experimental.UtilityClass;
-import org.springframework.lang.Nullable;
 
 /**
  * 字符串处理工具类
@@ -13,51 +15,37 @@ import org.springframework.lang.Nullable;
 @UtilityClass
 public class StrUtil {
 
-	/**
-	 * 将一个对象转化为string<br>
-	 * 本方法做如下转换:<br>
-	 * 1.如果对象为null,则转换为空字符串。<br>
-	 * 2.如果对象为BigDecimal,则按规定的默认精度和转换方式转换为字符串。<br>
-	 * 3.如果对象不为BigDecimal,则调用其默认的toString方法转换为字符串。<br>
-	 * @see frodez.constant.settings.DefDecimal
-	 * @author Frodez
-	 * @date 2019-04-01
-	 */
-	public static String get(@Nullable Object object) {
-		return get("", object);
+	private static final CharsetEncoder ASCII_ENCODER = StandardCharsets.US_ASCII.newEncoder();
+
+	public static void main(String[] args) {
 	}
 
 	/**
-	 * 将一个对象转化为string<br>
-	 * 本方法做如下转换:<br>
-	 * 1.如果对象为null,则转换为defaultStr。如果defaultStr也为null,则抛出IllegalArgumentException。<br>
-	 * 2.如果对象为BigDecimal,则按规定的默认精度和转换方式转换为字符串。<br>
-	 * 3.如果对象不为BigDecimal,则调用其默认的toString方法转换为字符串。<br>
-	 * @see frodez.constant.settings.DefDecimal
+	 * 将空字符串转换为null
 	 * @author Frodez
-	 * @date 2019-04-01
+	 * @date 2019-12-07
 	 */
-	public static String get(String defaultStr, @Nullable Object object) {
-		if (object == null) {
-			if (defaultStr == null) {
-				throw new IllegalArgumentException("while the object is null, defaultStr can't be null either!");
-			}
-			return defaultStr;
+	public static String orNull(String string) {
+		if (string == null) {
+			return null;
 		}
-		if (object.getClass() == BigDecimal.class) {
-			return ((BigDecimal) object).setScale(DefDecimal.PRECISION, DefDecimal.ROUND_MODE).toString();
-		}
-		return object.toString();
+		return string.isEmpty() ? null : string;
+	}
+
+	/**
+	 * 将null转换为空字符串
+	 * @author Frodez
+	 * @date 2019-12-07
+	 */
+	public static String orEmpty(String string) {
+		return string == null ? DefStr.EMPTY : string;
 	}
 
 	/**
 	 * 批量拼接字符串。<br>
-	 * 在极端的情况下,会直接返回原字符串(例如只有一个字符串传入且该字符串不为null)。这种情况可以极大地加快速度。<br>
-	 * 当然,如果只有一个字符串且该字符串为null,则会抛出异常。<br>
 	 * 注意:<strong>当输入的字符串数组中某处为null时，会抛出异常.</strong><br>
-	 * 另外由于String类型是inmutable的,故只要不涉及对其内存地址的操作,则不会出现bug。<br>
-	 * 经测试,在绝大多数场景下相对jdk的实现更快(平均50%左右或更多),在最坏情况下也与其相当。<br>
-	 * 与StringBuilder的非优化使用方式相比,性能也略快,从10%-50%不等。当拼接的字符串长度较长,或者字符串数组长度较长时,性能优势更大。
+	 * 经测试,在绝大多数场景下相对jdk的实现更快(平均20-30%左右),在最坏情况下也与其相当。<br>
+	 * 与StringBuilder的非优化使用方式相比,性能提高从20%-70%不等。当拼接的字符串长度较长,或者字符串数组长度较长时,性能优势更大。
 	 * @see java.lang.String#concat(String)
 	 * @author Frodez
 	 * @date 2019-04-01
@@ -66,23 +54,67 @@ public class StrUtil {
 		if (EmptyUtil.yes(strings)) {
 			throw new IllegalArgumentException("it isn't suitable for empty string.");
 		}
-		int stringsLength = strings.length;
-		if (stringsLength == 1) {
-			if (strings[0] == null) {
-				throw new IllegalArgumentException("the first string of the string array is null.");
-			}
+		int length = strings.length;
+		if (length == 1) {
 			return strings[0];
 		}
 		int size = 0;
-		for (int i = 0; i < stringsLength; i++) {
+		for (int i = 0; i < strings.length; i++) {
 			//如果字符串数组某处为null,会自动抛出异常
 			size = size + strings[i].length();
 		}
 		StringBuilder builder = new StringBuilder(size);
-		for (int i = 0; i < stringsLength; i++) {
-			builder.append(strings[i]);
+		for (int i = 0; i < length; i++) {
+			String string = strings[i];
+			if (string.isEmpty()) {
+				continue;
+			}
+			builder.append(string);
 		}
 		return builder.toString();
+	}
+
+	/**
+	 * 批量拼接字符串。<br>
+	 * 注意:<strong>当输入的字符串数组中某处为null时，会抛出异常.</strong><br>
+	 * 经测试,在绝大多数场景下相对jdk的实现更快(平均20-30%左右),在最坏情况下也与其相当。<br>
+	 * 与StringBuilder的非优化使用方式相比,性能提高从20%-70%不等。当拼接的字符串长度较长,或者字符串数组长度较长时,性能优势更大。
+	 * @see java.lang.String#concat(String)
+	 * @author Frodez
+	 * @param <T>
+	 * @date 2019-04-01
+	 */
+	public static String concat(Collection<String> strings) {
+		if (EmptyUtil.yes(strings)) {
+			throw new IllegalArgumentException("it isn't suitable for empty string.");
+		}
+		if (strings.size() == 1) {
+			return strings.iterator().next();
+		}
+		int size = 0;
+		for (String string : strings) {
+			//如果字符串数组某处为null,会自动抛出异常
+			size = size + string.length();
+		}
+		StringBuilder builder = new StringBuilder(size);
+		for (String string : strings) {
+			if (string.isEmpty()) {
+				continue;
+			}
+			builder.append(string);
+		}
+		return builder.toString();
+	}
+
+	/**
+	 * 优雅join,专门处理null和空字符串<br>
+	 * <strong>如果不需要处理null和空字符串,请不要用本方法!!!</strong>
+	 * @author Frodez
+	 * @date 2019-12-14
+	 */
+	public static String join(CharSequence delimiter, CharSequence... elements) {
+		CharSequence[] strings = EmptyUtil.trim(true, elements);
+		return strings.length == 0 ? DefStr.EMPTY : String.join(delimiter, strings);
 	}
 
 	/**
@@ -94,8 +126,9 @@ public class StrUtil {
 		if (EmptyUtil.yes(string)) {
 			throw new IllegalArgumentException("it isn't suitable for empty string.");
 		}
-		return new StringBuilder(string.length()).append(Character.toUpperCase(string.charAt(0))).append(string
-			.substring(1)).toString();
+		StringBuilder builder = new StringBuilder(string.length());
+		upper(builder, string, 0);
+		return builder.toString();
 	}
 
 	/**
@@ -107,8 +140,51 @@ public class StrUtil {
 		if (EmptyUtil.yes(string)) {
 			throw new IllegalArgumentException("it isn't suitable for empty string.");
 		}
-		return new StringBuilder(string.length()).append(Character.toLowerCase(string.charAt(0))).append(string
-			.substring(1)).toString();
+		StringBuilder builder = new StringBuilder(string.length());
+		lower(builder, string, 0);
+		return builder.toString();
+	}
+
+	private void upper(StringBuilder builder, String string, int start) {
+		int end = string.length();
+		if (start == end) {
+			return;
+		}
+		builder.append(Character.toUpperCase(string.charAt(0)));
+		if (start + 1 < end) {
+			builder.append(string.substring(start + 1));
+		}
+	}
+
+	private void upper(StringBuilder builder, String string, int start, int end) {
+		if (start == end) {
+			return;
+		}
+		builder.append(Character.toUpperCase(string.charAt(0)));
+		if (start + 1 < end) {
+			builder.append(string.substring(start + 1, end));
+		}
+	}
+
+	private void lower(StringBuilder builder, String string, int start) {
+		int end = string.length();
+		if (start == end) {
+			return;
+		}
+		builder.append(Character.toLowerCase(string.charAt(0)));
+		if (start + 1 < end) {
+			builder.append(string.substring(start + 1));
+		}
+	}
+
+	private void lower(StringBuilder builder, String string, int start, int end) {
+		if (start == end) {
+			return;
+		}
+		builder.append(Character.toLowerCase(string.charAt(0)));
+		if (start + 1 < end) {
+			builder.append(string.substring(start + 1, end));
+		}
 	}
 
 	/**
@@ -131,24 +207,148 @@ public class StrUtil {
 		if (string == null || delimiter == null) {
 			throw new IllegalArgumentException("when string is null, delimiter can't be null either.");
 		}
-		String[] tokens = string.split(delimiter);
-		int tokensLength = tokens.length;
-		if (tokensLength <= 1) {
-			return new StringBuilder(string.length()).append(Character.toLowerCase(string.charAt(0))).append(string
-				.substring(1)).toString();
-		}
-		char[] upperStarters = new char[tokensLength - 1];
-		for (int i = 1; i < tokensLength; i++) {
-			upperStarters[i - 1] = Character.toUpperCase(tokens[i].charAt(0));
-			tokens[i] = tokens[i].substring(1);
-		}
 		StringBuilder builder = new StringBuilder(string.length());
-		builder.append(Character.toLowerCase(tokens[0].charAt(0)));
-		builder.append(tokens[0].substring(1));
-		for (int i = 1; i < tokensLength; i++) {
-			builder.append(upperStarters[i]).append(tokens[i]);
+		int from = builder.indexOf(delimiter);
+		if (from < 0) {
+			//未找到分隔符,直接将原字符串首字母小写。
+			lower(builder, string, 0);
+			return builder.toString();
+		}
+		lower(builder, string, 0, from);
+		int skip = delimiter.length();
+		//上个分隔符的结束处
+		from = from + skip;
+		while (true) {
+			//下个分隔符的起始处
+			int next = string.indexOf(delimiter, from);
+			if (next < 0) {
+				//如果未找到下个分隔符
+				upper(builder, string, from);
+				break;
+			} else {
+				//如果找到了
+				upper(builder, string, from, next);
+				from = next + skip;
+			}
 		}
 		return builder.toString();
+	}
+
+	/**
+	 * 不使用正则表达式的spilt
+	 * @author Frodez
+	 * @date 2019-12-24
+	 */
+	public static String[] split(String delimiter, String string) {
+		int from = string.indexOf(delimiter);
+		if (from < 0) {
+			//未找到
+			return new String[] { string };
+		}
+		//如果找到,则分割
+		int skip = delimiter.length();
+		//可能的长度
+		StringArray builder = new StringArray(string.length() / (skip << 2));
+		//加入第一段
+		builder.append(string.substring(0, from));
+		//上个分隔符的结束处
+		from = from + skip;
+		while (true) {
+			//下个分隔符的起始处
+			int next = string.indexOf(delimiter, from);
+			if (next < 0) {
+				//如果未找到下个分隔符
+				if (from != string.length()) {
+					builder.append(string.substring(from));
+				}
+				break;
+			} else {
+				//说明两个分隔符之间有字符
+				if (next != from) {
+					builder.append(string.substring(from, next));
+				}
+				from = next + skip;
+			}
+		}
+		return builder.finish();
+	}
+
+	/**
+	 * 可变长字符数组
+	 * @author Frodez
+	 * @date 2019-12-24
+	 */
+	private class StringArray {
+
+		//设置一个稍小的值,毕竟用不到那么多
+		private static final int MAX_ARRAY_SIZE = 65536;
+
+		/**
+		 * 数据
+		 */
+		private String[] elements;
+
+		/**
+		 * 总容量
+		 */
+		private int length;
+
+		/**
+		 * 当前头部位置(elements[head]为null)
+		 */
+		private int head;
+
+		/**
+		 * 按照设置初始化
+		 * @param initialLength 基础容量
+		 */
+		public StringArray(int initialLength) {
+			length = initialLength;
+			elements = new String[length];
+			head = 0;
+		}
+
+		/**
+		 * 添加数据
+		 * @author Frodez
+		 * @date 2019-12-24
+		 */
+		public void append(String data) {
+			if (data == null) {
+				throw new NullPointerException();
+			}
+			if (head == length) {
+				elements = grow();
+			}
+			elements[head++] = data;
+		}
+
+		private String[] grow() {
+			if (length > MAX_ARRAY_SIZE) {
+				throw new RuntimeException("size must be no more than" + MAX_ARRAY_SIZE);
+			}
+			length = length << 1;
+			return Arrays.copyOf(elements, length);
+		}
+
+		/**
+		 * 转换为数组
+		 * @author Frodez
+		 * @date 2019-12-24
+		 */
+		public String[] finish() {
+			return length == head ? elements : Arrays.copyOf(elements, head);
+		}
+
+	}
+
+	/**
+	 * 是否为ascii字符串
+	 * @author Frodez
+	 * @date 2019-12-07
+	 */
+	public boolean isAscii(String string) {
+		return ASCII_ENCODER.canEncode(string);
 	}
 
 }

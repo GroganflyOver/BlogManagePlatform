@@ -6,23 +6,24 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageInfo;
 import com.google.common.collect.ImmutableMap;
-import frodez.constant.errors.exception.ResultParseException;
-import frodez.constant.settings.DefDesc;
+import frodez.constant.errors.code.ServiceException;
+import frodez.util.common.StrUtil;
 import frodez.util.json.JSONUtil;
-import io.swagger.annotations.ApiModel;
-import io.swagger.annotations.ApiModelProperty;
 import java.io.Serializable;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import javax.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.SneakyThrows;
+import lombok.experimental.UtilityClass;
 import org.springframework.http.HttpStatus;
+import org.springframework.lang.Nullable;
 import org.springframework.scheduling.annotation.AsyncResult;
 import org.springframework.util.Assert;
 import org.springframework.util.concurrent.ListenableFuture;
@@ -71,73 +72,26 @@ import org.springframework.util.concurrent.ListenableFuture;
  * httpStatus()和resultEnum()用于获取Result的http状态码和自定义状态码。
  * </pre>
  *
+ * <strong>此参数的泛型版本见frodez.config.swagger.plugin.DefaultSuccessResolverPlugin.SwaggerModel</strong>
+ * @see frodez.config.swagger.plugin.SuccessPlugin.SwaggerModel
  * @author Frodez
  * @date 2018-11-13
  */
 @EqualsAndHashCode
-@ApiModel(description = DefDesc.Message.RESULT)
 public final class Result implements Serializable {
+
+	private static final long serialVersionUID = 1L;
 
 	/**
 	 * 默认json缓存(数组类型),只有默认类型实例才存在
 	 */
+	@Nullable
 	private transient byte[] cacheBytes;
-
-	/**
-	 * 默认类型实例
-	 */
-	private static transient final EnumMap<ResultEnum, Result> DEFAULT_RESULT_CACHE = new EnumMap<>(ResultEnum.class);
-
-	/**
-	 * jackson writer
-	 */
-	private static transient ObjectWriter writer;
-
-	/**
-	 * jackson writer
-	 */
-	private static transient ObjectReader reader;
-
-	static {
-		writer = JSONUtil.mapper().writerFor(Result.class);
-		reader = JSONUtil.mapper().readerFor(Result.class);
-		for (ResultEnum item : ResultEnum.values()) {
-			Result result = new Result(item);
-			try {
-				result.cacheBytes = writer.writeValueAsBytes(result);
-			} catch (JsonProcessingException e) {
-				throw new RuntimeException(e);
-			}
-			DEFAULT_RESULT_CACHE.put(item, result);
-		}
-		Assert.notNull(writer, "writer must not be null");
-		Assert.notNull(reader, "reader must not be null");
-		Assert.notNull(DEFAULT_RESULT_CACHE, "DEFAULT_RESULT_CACHE must not be null");
-	}
-
-	/**
-	 * 获取ObjectWriter
-	 * @author Frodez
-	 * @date 2019-05-24
-	 */
-	public static ObjectWriter writer() {
-		return writer;
-	}
-
-	/**
-	 * 获取ObjectReader
-	 * @author Frodez
-	 * @date 2019-05-24
-	 */
-	public static ObjectReader reader() {
-		return reader;
-	}
 
 	/**
 	 * 状态
 	 */
 	@NotNull
-	@ApiModelProperty(value = "状态", example = "1000")
 	private int code;
 
 	/**
@@ -153,7 +107,6 @@ public final class Result implements Serializable {
 	 * 消息
 	 */
 	@NotNull
-	@ApiModelProperty(value = "消息", example = "成功")
 	private String message;
 
 	/**
@@ -168,7 +121,6 @@ public final class Result implements Serializable {
 	/**
 	 * 数据
 	 */
-	@ApiModelProperty(value = "数据")
 	private Object data;
 
 	/**
@@ -186,7 +138,7 @@ public final class Result implements Serializable {
 	 * @date 2019-01-15
 	 */
 	public static Result success() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.SUCCESS);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.SUCCESS);
 	}
 
 	/**
@@ -221,8 +173,7 @@ public final class Result implements Serializable {
 	 */
 	public static <T> Result page(Page<T> page) {
 		Assert.notNull(page, "page must not be null");
-		return new Result(ResultEnum.SUCCESS, new PageData<>(page.getPageNum(), page.getPageSize(), page.getTotal(),
-			page.getResult()));
+		return new Result(ResultEnum.SUCCESS, new PageData<>(page.getPageNum(), page.getPageSize(), page.getTotal(), page.getResult()));
 	}
 
 	/**
@@ -236,8 +187,7 @@ public final class Result implements Serializable {
 	public static <T> Result page(Page<?> page, Collection<T> data) {
 		Assert.notNull(page, "page must not be null");
 		Assert.notNull(data, "data must not be null");
-		return new Result(ResultEnum.SUCCESS, new PageData<>(page.getPageNum(), page.getPageSize(), page.getTotal(),
-			data));
+		return new Result(ResultEnum.SUCCESS, new PageData<>(page.getPageNum(), page.getPageSize(), page.getTotal(), data));
 	}
 
 	/**
@@ -249,8 +199,7 @@ public final class Result implements Serializable {
 	 */
 	public static <T> Result page(PageInfo<T> page) {
 		Assert.notNull(page, "page must not be null");
-		return new Result(ResultEnum.SUCCESS, new PageData<>(page.getPageNum(), page.getPageSize(), page.getTotal(),
-			page.getList()));
+		return new Result(ResultEnum.SUCCESS, new PageData<>(page.getPageNum(), page.getPageSize(), page.getTotal(), page.getList()));
 	}
 
 	/**
@@ -264,8 +213,7 @@ public final class Result implements Serializable {
 	public static <T> Result page(PageInfo<?> page, Collection<T> data) {
 		Assert.notNull(page, "page must not be null");
 		Assert.notNull(data, "data must not be null");
-		return new Result(ResultEnum.SUCCESS, new PageData<>(page.getPageNum(), page.getPageSize(), page.getTotal(),
-			data));
+		return new Result(ResultEnum.SUCCESS, new PageData<>(page.getPageNum(), page.getPageSize(), page.getTotal(), data));
 	}
 
 	/**
@@ -274,7 +222,7 @@ public final class Result implements Serializable {
 	 * @date 2019-01-15
 	 */
 	public static Result fail() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.FAIL);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.FAIL);
 	}
 
 	/**
@@ -293,7 +241,7 @@ public final class Result implements Serializable {
 	 * @date 2019-02-02
 	 */
 	public static Result errorRequest() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.ERROR_PARAMETER);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.ERROR_PARAMETER);
 	}
 
 	/**
@@ -312,7 +260,7 @@ public final class Result implements Serializable {
 	 * @date 2019-01-15
 	 */
 	public static Result errorService() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.ERROR_SERVICE);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.ERROR_SERVICE);
 	}
 
 	/**
@@ -336,12 +284,22 @@ public final class Result implements Serializable {
 	}
 
 	/**
-	 * 返回未登录结果
+	 * 返回未登录结果(无信息)
 	 * @author Frodez
 	 * @date 2019-03-02
 	 */
 	public static Result notLogin() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.NOT_LOGIN);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.NOT_LOGIN);
+	}
+
+	/**
+	 * 返回未登录结果(有信息)
+	 * @author Frodez
+	 * @date 2019-03-02
+	 */
+	public static Result notLogin(String message) {
+		Assert.notNull(message, "message must not be null");
+		return new Result(message, ResultEnum.NOT_LOGIN);
 	}
 
 	/**
@@ -350,7 +308,7 @@ public final class Result implements Serializable {
 	 * @date 2019-03-02
 	 */
 	public static Result expired() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.EXPIRED);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.EXPIRED);
 	}
 
 	/**
@@ -359,7 +317,7 @@ public final class Result implements Serializable {
 	 * @date 2019-03-02
 	 */
 	public static Result noAuth() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.NO_AUTH);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.NO_AUTH);
 	}
 
 	/**
@@ -368,7 +326,7 @@ public final class Result implements Serializable {
 	 * @date 2019-03-02
 	 */
 	public static Result noAccess() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.NO_ACCESS);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.NO_ACCESS);
 	}
 
 	/**
@@ -377,7 +335,7 @@ public final class Result implements Serializable {
 	 * @date 2019-03-02
 	 */
 	public static Result repeatRequest() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.REPEAT_REQUEST);
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.REPEAT_REQUEST);
 	}
 
 	/**
@@ -386,27 +344,7 @@ public final class Result implements Serializable {
 	 * @date 2019-03-02
 	 */
 	public static Result busy() {
-		return DEFAULT_RESULT_CACHE.get(ResultEnum.BUSY);
-	}
-
-	private Result() {
-
-	}
-
-	private Result(String message, ResultEnum status) {
-		this.message = message;
-		this.code = status.getVal();
-	}
-
-	private Result(ResultEnum status, Object data) {
-		this.message = status.getDesc();
-		this.code = status.getVal();
-		this.data = data;
-	}
-
-	private Result(ResultEnum status) {
-		this.message = status.getDesc();
-		this.code = status.getVal();
+		return ResultHelper.DEFAULT_CACHE.get(ResultEnum.BUSY);
 	}
 
 	/**
@@ -480,8 +418,7 @@ public final class Result implements Serializable {
 	 * @date 2018-11-13
 	 */
 	@SuppressWarnings("unchecked")
-	public <K, V> Map<K, V> map(Class<K> keyClass, Class<V> valueClass) throws ClassCastException,
-		ResultParseException {
+	public <K, V> Map<K, V> map(Class<K> keyClass, Class<V> valueClass) throws ClassCastException, ResultParseException {
 		Assert.notNull(keyClass, "keyClass must not be null");
 		Assert.notNull(valueClass, "valueClass must not be null");
 		ableAndNotNull();
@@ -522,6 +459,47 @@ public final class Result implements Serializable {
 	}
 
 	/**
+	 * 判断是否可用,如果不可用,则抛出Exception
+	 * @author Frodez
+	 * @param <E>
+	 * @throws Exception
+	 * @date 2019-12-07
+	 */
+	public <E extends Throwable> Result orThrow(Function<Result, ? extends E> function) throws E {
+		if (code != ResultEnum.SUCCESS.val) {
+			throw function.apply(this);
+		}
+		return this;
+	}
+
+	/**
+	 * 判断是否可用,如果不可用,则抛出ServiceException
+	 * @see frodez.constant.errors.code.ServiceException.ServiceException
+	 * @author Frodez
+	 * @date 2019-12-07
+	 */
+	public Result orThrowMessage() {
+		if (code != ResultEnum.SUCCESS.val) {
+			throw new ServiceException(this.message);
+		}
+		return this;
+	}
+
+	/**
+	 * 判断是否可用,如果不可用,则抛出Exception
+	 * @author Frodez
+	 * @param <E>
+	 * @throws Exception
+	 * @date 2019-12-07
+	 */
+	public <E extends Throwable> Result orThrowMessage(Function<String, ? extends E> function) throws E {
+		if (code != ResultEnum.SUCCESS.val) {
+			throw function.apply(this.message);
+		}
+		return this;
+	}
+
+	/**
 	 * 获取对应的HttpStatus
 	 * @author Frodez
 	 * @date 2019-03-02
@@ -558,23 +536,43 @@ public final class Result implements Serializable {
 	}
 
 	/**
-	 * 获取json字符串(数组形式)
+	 * 获取json字符串(数组形式)<br>
+	 * <strong>禁止对jsonBytes做任何修改!!!</strong>
 	 * @author Frodez
 	 * @date 2019-05-24
 	 */
 	@SneakyThrows
 	public byte[] jsonBytes() {
-		return cacheBytes != null ? cacheBytes : writer.writeValueAsBytes(this);
+		return cacheBytes != null ? cacheBytes : ResultHelper.writer.writeValueAsBytes(this);
 	}
 
 	/**
 	 * 获取result的json字符串缓存(数组形式)<br>
-	 * 仅当为默认Result时使用.<br>
+	 * 仅当为默认Result时使用.其他时候为空.<br>
+	 * <strong>禁止对cacheBytes做任何修改!!!</strong>
 	 * @author Frodez
 	 * @date 2018-11-27
 	 */
-	public byte[] cache() {
+	public byte[] cacheBytes() {
 		return cacheBytes;
+	}
+
+	/**
+	 * 获取ObjectWriter
+	 * @author Frodez
+	 * @date 2019-05-24
+	 */
+	public static ObjectWriter writer() {
+		return ResultHelper.writer;
+	}
+
+	/**
+	 * 获取ObjectReader
+	 * @author Frodez
+	 * @date 2019-05-24
+	 */
+	public static ObjectReader reader() {
+		return ResultHelper.reader;
 	}
 
 	private void ableAndNotNull() {
@@ -584,6 +582,26 @@ public final class Result implements Serializable {
 		if (data == null) {
 			throw new ResultParseException("数据为空!");
 		}
+	}
+
+	private Result() {
+
+	}
+
+	private Result(String message, ResultEnum status) {
+		this.message = message;
+		this.code = status.getVal();
+	}
+
+	private Result(ResultEnum status, Object data) {
+		this.message = status.getDesc();
+		this.code = status.getVal();
+		this.data = data;
+	}
+
+	private Result(ResultEnum status) {
+		this.message = status.getDesc();
+		this.code = status.getVal();
 	}
 
 	/**
@@ -669,6 +687,69 @@ public final class Result implements Serializable {
 
 	}
 
-	private static final long serialVersionUID = 1L;
+	/**
+	 * Result解析异常
+	 * @author Frodez
+	 * @date 2019-01-21
+	 */
+	public class ResultParseException extends RuntimeException {
+
+		private static final long serialVersionUID = 1L;
+
+		public ResultParseException(String message) {
+			super(message, null, false, false);
+		}
+
+		public ResultParseException(String... message) {
+			super(StrUtil.concat(message), null, false, false);
+		}
+
+		public ResultParseException() {
+			super(null, null, false, false);
+		}
+
+	}
+
+	/**
+	 * Result工具类
+	 * @author Frodez
+	 * @date 2019-12-03
+	 */
+	@UtilityClass
+	private static class ResultHelper {
+
+		/**
+		 * 默认类型实例
+		 */
+		static transient final EnumMap<ResultEnum, Result> DEFAULT_CACHE = new EnumMap<>(ResultEnum.class);
+
+		/**
+		 * jackson writer
+		 */
+		static transient ObjectWriter writer;
+
+		/**
+		 * jackson writer
+		 */
+		static transient ObjectReader reader;
+
+		static {
+			writer = JSONUtil.mapper().writerFor(Result.class);
+			reader = JSONUtil.mapper().readerFor(Result.class);
+			for (ResultEnum item : ResultEnum.values()) {
+				Result result = new Result(item);
+				try {
+					result.cacheBytes = writer.writeValueAsBytes(result);
+				} catch (JsonProcessingException e) {
+					throw new RuntimeException(e);
+				}
+				DEFAULT_CACHE.put(item, result);
+			}
+			Assert.notNull(writer, "writer must not be null");
+			Assert.notNull(reader, "reader must not be null");
+			Assert.notNull(DEFAULT_CACHE, "DEFAULT_CACHE must not be null");
+		}
+
+	}
 
 }

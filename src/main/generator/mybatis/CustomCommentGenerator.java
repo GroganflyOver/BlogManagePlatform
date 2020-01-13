@@ -10,11 +10,14 @@ import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Table;
+import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import lombok.Data;
+import org.hibernate.validator.constraints.Length;
 import org.mybatis.generator.api.IntrospectedColumn;
 import org.mybatis.generator.api.IntrospectedTable;
 import org.mybatis.generator.api.dom.java.Field;
+import org.mybatis.generator.api.dom.java.FullyQualifiedJavaType;
 import org.mybatis.generator.api.dom.java.TopLevelClass;
 import org.mybatis.generator.internal.DefaultCommentGenerator;
 import org.springframework.lang.Nullable;
@@ -38,33 +41,59 @@ public class CustomCommentGenerator extends DefaultCommentGenerator {
 		resolveEntityAnnotation(klass, table);
 	}
 
+	private void addImport(TopLevelClass klass, Class<?> importClass) {
+		FullyQualifiedJavaType type = new FullyQualifiedJavaType(importClass.getCanonicalName());
+		boolean exist = klass.getImportedTypes().contains(type);
+		if (!exist) {
+			klass.addImportedType(type);
+		}
+	}
+
 	private void resolveImports(TopLevelClass klass, IntrospectedTable table) {
-		klass.addImportedType(Data.class.getCanonicalName());
-		klass.addImportedType(Id.class.getCanonicalName());
-		klass.addImportedType(Table.class.getCanonicalName());
-		klass.addImportedType(Column.class.getCanonicalName());
-		klass.addImportedType(Entity.class.getCanonicalName());
-		klass.addImportedType(ApiModel.class.getCanonicalName());
-		klass.addImportedType(ApiModelProperty.class.getCanonicalName());
+		addImport(klass, Data.class);
+		addImport(klass, Id.class);
+		addImport(klass, Table.class);
+		addImport(klass, Column.class);
+		addImport(klass, Entity.class);
+		addImport(klass, ApiModel.class);
+		addImport(klass, ApiModelProperty.class);
 		boolean hasNullable = false;
 		boolean hasNotNull = false;
+		boolean hasNotBlank = false;
+		boolean hasLength = false;
 		for (IntrospectedColumn iter : table.getAllColumns()) {
 			if (iter.isNullable()) {
 				hasNullable = true;
 			} else {
-				hasNotNull = true;
+				if (iter.isStringColumn()) {
+					hasNotBlank = true;
+				} else {
+					hasNotNull = true;
+				}
+			}
+			if (iter.isStringColumn()) {
+				if (iter.getLength() != 0) {
+					hasLength = true;
+				}
 			}
 		}
 		if (hasNullable) {
-			klass.addImportedType(Nullable.class.getCanonicalName());
+			addImport(klass, Nullable.class);
 		}
 		if (hasNotNull) {
-			klass.addImportedType(NotNull.class.getCanonicalName());
+			addImport(klass, NotNull.class);
+		}
+		if (hasNotBlank) {
+			addImport(klass, NotBlank.class);
+		}
+		if (hasLength) {
+			addImport(klass, Length.class);
 		}
 	}
 
 	private void resolveEntityJavadoc(TopLevelClass klass, IntrospectedTable table) {
 		String tableRemark = table.getRemarks() == null ? "" : table.getRemarks();
+		klass.addJavaDocLine("/**");
 		klass.addJavaDocLine(" * @description " + tableRemark);
 		klass.addJavaDocLine(" * @table " + table.getFullyQualifiedTable());
 		klass.addJavaDocLine(" * @date " + LocalDate.now().toString());
@@ -77,7 +106,10 @@ public class CustomCommentGenerator extends DefaultCommentGenerator {
 		klass.addAnnotation("@Entity");
 		String description = tableRemark;
 		if (description.endsWith("表")) {
-			description = description.substring(0, description.length() - 1).concat("返回数据");
+			description = description.substring(0, description.length() - 1);
+			if (!description.endsWith("信息")) {
+				description = description.concat("信息");
+			}
 		}
 		klass.addAnnotation("@Table(name = \"" + table.getFullyQualifiedTable() + "\")");
 		klass.addAnnotation("@ApiModel(description = \"" + description + "\")");
@@ -94,6 +126,7 @@ public class CustomCommentGenerator extends DefaultCommentGenerator {
 		resolveFieldJavadoc(field, table, column);
 		resolveDefaultValue(field, table, column);
 		resolveNullable(field, table, column);
+		resolveLength(field, table, column);
 		resolveColumn(field, table, column);
 		resolveApiModelProperty(field, table, column);
 	}
@@ -173,7 +206,11 @@ public class CustomCommentGenerator extends DefaultCommentGenerator {
 		if (column.isNullable()) {
 			field.addAnnotation("@Nullable");
 		} else {
-			field.addAnnotation("@NotNull");
+			if (field.getType().getShortName().equals("String")) {
+				field.addAnnotation("@NotBlank");
+			} else {
+				field.addAnnotation("@NotNull");
+			}
 		}
 	}
 
@@ -193,14 +230,26 @@ public class CustomCommentGenerator extends DefaultCommentGenerator {
 	}
 
 	private void resolveApiModelProperty(Field field, IntrospectedTable table, IntrospectedColumn column) {
-		String defaultValue = column.getDefaultValue();
 		String remark = column.getRemarks();
-		String apiModelProperty = "@ApiModelProperty(value = \"" + remark + "\"";
-		if (EmptyUtil.no(defaultValue)) {
-			apiModelProperty = apiModelProperty + ", example = \"" + defaultValue + "\"";
-		}
-		apiModelProperty = apiModelProperty + ")";
+		String apiModelProperty;
+		//swagger插件处理defaultValue
+		//      String defaultValue = column.getDefaultValue();
+		//		if (EmptyUtil.no(defaultValue)) {
+		//			apiModelProperty = "@ApiModelProperty(value = \"" + remark + "\"" + ", example = \"" + defaultValue + "\")";
+		//		} else {
+		//			apiModelProperty = "@ApiModelProperty(\"" + remark + "\")";
+		//		}
+		apiModelProperty = "@ApiModelProperty(\"" + remark + "\")";
 		field.addAnnotation(apiModelProperty);
+	}
+
+	private void resolveLength(Field field, IntrospectedTable table, IntrospectedColumn column) {
+		if (field.getType().getShortName().equals("String")) {
+			if (column.getLength() != 0) {
+				String length = "@Length(max = " + column.getLength() + ")";
+				field.addAnnotation(length);
+			}
+		}
 	}
 
 }

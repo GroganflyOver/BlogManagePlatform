@@ -1,24 +1,19 @@
 package frodez.constant.enums;
 
-/**
- * 业务逻辑通用枚举接口
- * @author Frodez
- * @date 2019-06-19
- */
-public interface IEnum<V> {
+import java.util.List;
 
-	/**
-	 * 获取枚举对应的值
-	 * @author Frodez
-	 * @date 2019-06-19
-	 */
-	V getVal();
+public interface IEnum<V, E extends Enum<E>> {
 
-	/**
-	 * 获取枚举对应的描述
-	 * @author Frodez
-	 * @date 2019-06-19
-	 */
-	String getDesc();
+	static <V> V getVal() {
+		return null;
+	}
+
+	static String getDesc() {
+		return null;
+	}
+
+	static <V> List<V> getVals() {
+		return null;
+	}
 
 }

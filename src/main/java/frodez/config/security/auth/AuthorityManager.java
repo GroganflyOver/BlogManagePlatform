@@ -3,10 +3,10 @@ package frodez.config.security.auth;
 import frodez.config.security.settings.SecurityProperties;
 import frodez.config.security.util.Matcher;
 import frodez.util.common.EmptyUtil;
+import frodez.util.common.StreamUtil;
 import frodez.util.spring.ContextUtil;
 import java.util.Collection;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.security.access.AccessDecisionManager;
@@ -31,6 +31,10 @@ public class AuthorityManager implements AccessDecisionManager {
 
 	private ConfigAttribute defaultDeniedRole;
 
+	private void clear() {
+		defaultDeniedRole = null;
+	}
+
 	@PostConstruct
 	private void init() {
 		SecurityProperties properties = ContextUtil.bean(SecurityProperties.class);
@@ -45,7 +49,7 @@ public class AuthorityManager implements AccessDecisionManager {
 	 */
 	public void refresh() {
 		synchronized (this) {
-			defaultDeniedRole = null;
+			clear();
 			init();
 		}
 	}
@@ -61,12 +65,16 @@ public class AuthorityManager implements AccessDecisionManager {
 	 * @date 2018-12-03
 	 */
 	@Override
-	public void decide(Authentication auth, Object object, Collection<ConfigAttribute> permissions)
-		throws AccessDeniedException, InsufficientAuthenticationException {
-		if (!Matcher.needVerify(((FilterInvocation) object).getHttpRequest().getRequestURI())) {
-			// 如果是免验证路径,则直接放行
+	public void decide(Authentication auth, Object object, Collection<ConfigAttribute> permissions) throws AccessDeniedException,
+		InsufficientAuthenticationException {
+		FilterInvocation invocation = (FilterInvocation) object;
+		if (!Matcher.needVerify(invocation.getHttpRequest())) {
+			// 如果是免验证路径,则直接放行,因为免验证路径下为了防止报错,设置了一个默认的无访问权限
 			return;
 		}
+		//如果用户不带有权限,说明用户信息可能有问题,必须直接驳回
+		//详情见frodez.config.security.filter.TokenFilter.doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+		//和frodez.config.security.user.UserDetailsServiceImpl.loadUserByUsername(String username)方法
 		if (EmptyUtil.yes(auth.getAuthorities())) {
 			throw new AccessDeniedException("无访问权限!");
 		}
@@ -74,8 +82,7 @@ public class AuthorityManager implements AccessDecisionManager {
 		if (permissions.contains(defaultDeniedRole)) {
 			throw new AccessDeniedException("无访问权限!");
 		}
-		Set<String> auths = auth.getAuthorities().stream().map(GrantedAuthority::getAuthority).collect(Collectors
-			.toSet());
+		Set<String> auths = StreamUtil.set(auth.getAuthorities(), GrantedAuthority::getAuthority);
 		for (ConfigAttribute permission : permissions) {
 			if (auths.contains(permission.getAttribute())) {
 				return;
